@@ -24,8 +24,8 @@ Simple and robust indexedDB wrapper.
    * Chrome for Android
    * Firefox for Android
    * IE Mobile (untested)
-   * Safari 8 (with some [limitations](Safari8idblimitations))
-   * IOS Safari 8 (with some [limitations](Safari8idblimitations))
+   * Safari 8 (with some [limitations](IndexedDB-on-Safari))
+   * IOS Safari 8 (with some [limitations](IndexedDB-on-Safari))
  * Extended key range queries: equalsIgnoreCase(), anyOf([a,b,c,d,...]), startsWith(), startsWithIgnoreCase()
  * Logical "OR": friends.where("age").below(40).or("length").above(200).toArray(...);
  * Built to be easily extended and build addons upon.
