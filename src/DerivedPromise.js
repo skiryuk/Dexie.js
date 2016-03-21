@@ -81,7 +81,7 @@ export function generatePromiseConstructor (BasePromise) {
             },
             _setCatched: function () {
                 this.catched = true;
-                if (this.up) this.up._setCatched();
+                if (this.up && !this.up.catched) this.up._setCatched();
             }
         };
     });
