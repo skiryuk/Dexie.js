@@ -6,8 +6,8 @@ export function generatePromiseConstructor (BasePromise) {
         V: Overloaded catch() (test if needed first)
         V: finally (test if needed first)
         V: onuncatched
+        V: _rootExec (if needed?)
         _tickFinalize
-        _rootExec (if needed?)
     */
     function Promise (fn) {
         if (typeof this !== 'object') throw new TypeError('Promises must be constructed via new');
@@ -103,5 +103,25 @@ export function generatePromiseConstructor (BasePromise) {
 
     Promise.all = function(values) {
         return new Promise(BasePromise.all(Array.isArray(values) ? values : Array.slice.call(arguments)));
+    }
+
+    Promise.newPSD = function (fn) {
+        // Create new PSD scope (Promise Specific Data)
+        var outerScope = Promise.PSD;
+        Promise.PSD = outerScope ? Object.create(outerScope) : {};
+        try {
+            return fn();
+        } finally {
+            Promise.PSD = outerScope;
+        }
+    };
+
+    Promise._rootExec = fn=>fn(); // Dummy. Cannot implement. Promise must be indexedDB compatible or YOU will be fired.
+
+    Promise._tickFinalize = fn => {
+        Promise.resolve().then(()=>{
+            // Oh uh! Dont know how to implement this or even if it's possible.
+
+        })
     }
 }
