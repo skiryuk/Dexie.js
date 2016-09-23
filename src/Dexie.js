@@ -804,8 +804,6 @@ export default function Dexie(dbName, options) {
                         if (typeof returnValue.next === 'function' && typeof returnValue.throw === 'function') {
                             // scopeFunc returned an iterator with throw-support. Handle yield as await.
                             returnValue = awaitIterator(returnValue);
-                        } else if (typeof returnValue.then === 'function' && !hasOwn(returnValue, '_PSD')) {
-                            throw new exceptions.IncompatiblePromise("Incompatible Promise returned from transaction scope (read more at http://tinyurl.com/znyqjqc). Transaction scope: " + scopeFunc.toString());
                         }
                     }
                 }).uncaught(dbUncaught).then(()=>{

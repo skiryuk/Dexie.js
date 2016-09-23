@@ -22,7 +22,7 @@ module("transaction", {
     }
 });
 
-asyncTest("Transaction should fail if returning non-Dexie Promise in transaction scope", function(){
+/*asyncTest("Transaction should fail if returning non-Dexie Promise in transaction scope", function(){
     db.transaction('rw', db.users, function() {
         return window.Promise.resolve().then(()=> {
             ok(Dexie.currentTransaction == null, "Dexie.currentTransaction == null. If this assertion fails, don't weap. Rejoice and try to understand how the hell this could be possible.");
@@ -34,6 +34,49 @@ asyncTest("Transaction should fail if returning non-Dexie Promise in transaction
         ok(false, "Transaction should not commit because we were using a non-Dexie promise");
     }).catch ('IncompatiblePromiseError', function(e){
         ok(true, "Good. Should fail with 'IncompatiblePromiseError': " + e);
+    }).finally(start);
+});*/
+
+asyncTest("Should cope 100% with native Promise", ()=>{
+    db.transaction('rw', db.users, function() {
+        var tx = Dexie.currentTransaction;
+        return window.Promise.resolve().then(()=> {
+            ok(Dexie.currentTransaction == tx, "Dexie.currentTransaction must be kept through a standard promise roundtrip");
+            return db.users.add({ username: "foobar" });
+        }).then(()=>{
+            return db.users.add({ username: "barfoo" });
+        });
+    }).then (function(){
+        return window.Promise.all([db.users.get("foobar"), db.users.get("barfoo")]);
+    }).then (results => {
+        ok (results[0] !== null, "Got foobar");
+        ok (results[1] !== null, "Got barfoo");
+    }).catch ('TransactionInactiveError', e => {
+        console.warn("Dexie did its job to support native promises. But your browser's indexedDB is incompatible with your browser's native promises (Edge, Safari and Firefox suffers from this)");
+        ok(true, "The browser's indexedDB did not like native promises. Nothing we could do anything about!");
+    }).catch (e => {
+        ok(false, `Error: ${e.stack || e}`);
+    }).finally(start);
+});
+
+asyncTest("Should support native async await", ()=>{
+    db.transaction('rw', db.users, function() {
+        var tx = Dexie.currentTransaction,
+            nativePromise;
+        // Need to eval. Not all browsers supports async await. Actually only Edge>13 with experimental flag on.
+        try {
+            var theDB = db;
+            return eval (`(async ()=>{
+                await theDB.users.toArray();
+                ok(Dexie.currentTransaction == tx, "Dexie.currentTransaction must be kept through native await");
+            })()`);
+            
+        } catch (err) {
+            ok(true, "This browser does not support async await natively. Test ignored.");
+            return;
+        }
+    }).catch (e => {
+        ok(false, `Error: ${e.stack || e}`);
     }).finally(start);
 });
 

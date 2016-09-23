@@ -112,7 +112,7 @@ export var tickFinalizers = []; // Finalizers to call when there are no more asy
 
 // Wrappers are not being used yet. Their framework is functioning and can be used
 // to replace environment during a PSD scope (a.k.a. 'zone').
-/* **KEEP** export var wrappers = (() => {
+export var wrappers = (() => {
     var wrappers = [];
 
     return {
@@ -132,7 +132,6 @@ export var tickFinalizers = []; // Finalizers to call when there are no more asy
         }
     };
 })();
-*/
 
 export default function Promise(fn) {
     if (typeof this !== 'object') throw new TypeError('Promises must be constructed via new');    
@@ -431,9 +430,9 @@ function callListener (cb, promise, listener) {
     var psd = listener.psd;
     try {
         if (psd !== outerScope) {
-            // **KEEP** outerScope.env = wrappers.snapshot(); // Snapshot outerScope's environment.
+            outerScope.env = wrappers.snapshot(); // Snapshot outerScope's environment.
             PSD = psd;
-            // **KEEP** wrappers.restore(psd.env); // Restore PSD's environment.
+            wrappers.restore(psd.env); // Restore PSD's environment.
         }
         
         // Set static variable currentFulfiller to the promise that is being fullfilled,
@@ -459,7 +458,7 @@ function callListener (cb, promise, listener) {
         // Restore PSD, env and currentFulfiller.
         if (psd !== outerScope) {
             PSD = outerScope;
-            // **KEEP** wrappers.restore(outerScope.env); // Restore outerScope's environment
+            wrappers.restore(outerScope.env); // Restore outerScope's environment
         }
         currentFulfiller = null;
         if (--numScheduledCalls === 0) finalizePhysicalTick();
@@ -602,9 +601,9 @@ export function wrap (fn, errorCatcher) {
 
         try {
             if (outerScope !== psd) {
-                // **KEEP** outerScope.env = wrappers.snapshot(); // Snapshot outerScope's environment
+                outerScope.env = wrappers.snapshot(); // Snapshot outerScope's environment
                 PSD = psd;
-                // **KEEP** wrappers.restore(psd.env); // Restore PSD's environment.
+                wrappers.restore(psd.env); // Restore PSD's environment.
             }
             return fn.apply(this, arguments);
         } catch (e) {
@@ -612,7 +611,7 @@ export function wrap (fn, errorCatcher) {
         } finally {
             if (outerScope !== psd) {
                 PSD = outerScope;
-                // **KEEP** wrappers.restore(outerScope.env); // Restore outerScope's environment
+                wrappers.restore(outerScope.env); // Restore outerScope's environment
             }
             if (wasRootExec) endMicroTickScope();
         }
@@ -625,7 +624,7 @@ export function newScope (fn, a1, a2, a3) {
     psd.parent = parent;
     psd.ref = 0;
     psd.global = false;
-    // **KEEP** psd.env = wrappers.wrap(psd);
+    psd.env = wrappers.wrap(psd);
     
     // unhandleds and onunhandled should not be specifically set here.
     // Leave them on parent prototype.
@@ -644,15 +643,15 @@ export function usePSD (psd, fn, a1, a2, a3) {
     var outerScope = PSD;
     try {
         if (psd !== outerScope) {
-            // **KEEP** outerScope.env = wrappers.snapshot(); // snapshot outerScope's environment.
+            outerScope.env = wrappers.snapshot(); // snapshot outerScope's environment.
             PSD = psd;
-            // **KEEP** wrappers.restore(psd.env); // Restore PSD's environment.
+            wrappers.restore(psd.env); // Restore PSD's environment.
         }
         return fn(a1, a2, a3);
     } finally {
         if (psd !== outerScope) {
             PSD = outerScope;
-            // **KEEP** wrappers.restore(outerScope.env); // Restore outerScope's environment.
+            wrappers.restore(outerScope.env); // Restore outerScope's environment.
         }
     }
 }
@@ -667,9 +666,7 @@ function globalError(err, promise) {
     } catch (e) {}
 }
 
-/* **KEEP** 
-
-export function wrapPromise(PromiseClass) {
+export function addPromiseWrapper(PromiseClass) {
     var proto = PromiseClass.prototype;
     var origThen = proto.then;
     
@@ -683,7 +680,7 @@ export function wrapPromise(PromiseClass) {
         var promise = this;
         var onFulfilledProxy = wrap(function(value){
             var rv = value;
-            if (onFulfilled) {
+            if (typeof onFulfilled === 'function') {
                 rv = onFulfilled(rv);
                 if (rv && typeof rv.then === 'function') rv.then(); // Intercept that promise as well.
             }
@@ -696,7 +693,7 @@ export function wrapPromise(PromiseClass) {
             var idx = unhandleds.length,
                 rv;
             while (idx--) if (unhandleds[idx]._$err === err) break;
-            if (onRejected) {
+            if (typeof onRejected === 'function') {
                 if (idx !== -1) unhandleds.splice(idx, 1); // Mark as handled.
                 rv = onRejected(err);
                 if (rv && typeof rv.then === 'function') rv.then(); // Intercept that promise as well.
@@ -715,10 +712,13 @@ export function wrapPromise(PromiseClass) {
     }
 }
 
-// Global Promise wrapper
-if (_global.Promise) wrapPromise(_global.Promise);
-
-*/
+// Add the ability to wrap global Promise
+if (_global.Promise) addPromiseWrapper(_global.Promise);
+try {
+    // Add the ability to wrap native Promise in case global Promise was replaced (needed for async await to work properly)
+    const NativePromise = eval (`(async ()=>await Promise.resolve())().constructor`);
+    if (NativePromise !== _global.Promise) addPromiseWrapper(NativePromise);
+} catch (e) {}
 
 doFakeAutoComplete(() => {
     // Simplify the job for VS Intellisense. This piece of code is one of the keys to the new marvellous intellisense support in Dexie.
