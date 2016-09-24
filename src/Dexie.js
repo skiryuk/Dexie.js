@@ -2888,7 +2888,7 @@ function TableSchema(name, primKey, indexes, instanceTemplate) {
 
 // Used in when defining dependencies later...
 // (If IndexedDBShim is loaded, prefer it before standard indexedDB)
-var idbshim = _global.idbModules && _global.idbModules.shimIndexedDB ? _global.idbModules : {};
+var idbshim = _global.shimIndexedDB ? _global.shimIndexedDB : {};
 
 function safariMultiStoreFix(storeNames) {
     return storeNames.length === 1 ? storeNames[0] : storeNames;
