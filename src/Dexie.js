@@ -3095,7 +3095,7 @@ props(Dexie, {
     //
     dependencies: {
         // Required:
-        indexedDB: (bowser.ios && bowser.safari) ?_global.shimIndexedDB : (_global.indexedDB || _global.mozIndexedDB || _global.webkitIndexedDB || _global.msIndexedDB),
+        indexedDB: bowser.ios ?_global.shimIndexedDB : (_global.indexedDB || _global.mozIndexedDB || _global.webkitIndexedDB || _global.msIndexedDB),
         IDBKeyRange: _global.IDBKeyRange || _global.webkitIDBKeyRange
     },
     
