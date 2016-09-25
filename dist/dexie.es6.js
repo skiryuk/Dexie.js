@@ -1,3 +1,5 @@
+import bowser from 'bowser';
+
 // By default, debug will be true only if platform is a web platform and its page is served from localhost.
 // When debug = true, error's stacks will contain asyncronic long stacks.
 var debug = typeof location !== 'undefined' &&
@@ -132,6 +134,76 @@ function promisableChain(f1, f2) {
         }
         return f2.apply(this, arguments);
     };
+}
+
+function Events(ctx) {
+    var evs = {};
+    var rv = function (eventName, subscriber) {
+        if (subscriber) {
+            // Subscribe. If additional arguments than just the subscriber was provided, forward them as well.
+            var i = arguments.length, args = new Array(i - 1);
+            while (--i) args[i - 1] = arguments[i];
+            evs[eventName].subscribe.apply(null, args);
+            return ctx;
+        } else if (typeof (eventName) === 'string') {
+            // Return interface allowing to fire or unsubscribe from event
+            return evs[eventName];
+        }
+    };
+    rv.addEventType = add;
+    
+    for (var i = 1, l = arguments.length; i < l; ++i) {
+        add(arguments[i]);
+    }
+    
+    return rv;
+
+    function add(eventName, chainFunction, defaultFunction) {
+        if (typeof eventName === 'object') return addConfiguredEvents(eventName);
+        if (!chainFunction) chainFunction = reverseStoppableEventChain;
+        if (!defaultFunction) defaultFunction = nop;
+
+        var context = {
+            subscribers: [],
+            fire: defaultFunction,
+            subscribe: function (cb) {
+                if (context.subscribers.indexOf(cb) === -1) {
+                    context.subscribers.push(cb);
+                    context.fire = chainFunction(context.fire, cb);
+                }
+            },
+            unsubscribe: function (cb) {
+                context.subscribers = context.subscribers.filter(function (fn) { return fn !== cb; });
+                context.fire = context.subscribers.reduce(chainFunction, defaultFunction);
+            }
+        };
+        evs[eventName] = rv[eventName] = context;
+        return context;
+    }
+
+    function addConfiguredEvents(cfg) {
+        // events(this, {reading: [functionChain, nop]});
+        keys(cfg).forEach(function (eventName) {
+            var args = cfg[eventName];
+            if (isArray(args)) {
+                add(eventName, cfg[eventName][0], cfg[eventName][1]);
+            } else if (args === 'asap') {
+                // Rather than approaching event subscription using a functional approach, we here do it in a for-loop where subscriber is executed in its own stack
+                // enabling that any exception that occur wont disturb the initiator and also not nescessary be catched and forgotten.
+                var context = add(eventName, mirror, function fire() {
+                    // Optimazation-safe cloning of arguments into args.
+                    var i = arguments.length, args = new Array(i);
+                    while (i--) args[i] = arguments[i];
+                    // All each subscriber:
+                    context.subscribers.forEach(function (fn) {
+                        asap(function fireEvent() {
+                            fn.apply(null, args);
+                        });
+                    });
+                });
+            } else throw new exceptions.InvalidArgument("Invalid event config");
+        });
+    }
 }
 
 var keys = Object.keys;
@@ -403,244 +475,6 @@ function getArrayOf (arrayLike) {
 const concat = [].concat;
 function flatten (a) {
     return concat.apply([], a);
-}
-
-var dexieErrorNames = [
-    'Modify',
-    'Bulk',
-    'OpenFailed',
-    'VersionChange',
-    'Schema',
-    'Upgrade',
-    'InvalidTable',
-    'MissingAPI',
-    'NoSuchDatabase',
-    'InvalidArgument',
-    'SubTransaction',
-    'Unsupported',
-    'Internal',
-    'DatabaseClosed',
-    'IncompatiblePromise'
-];
-
-var idbDomErrorNames = [
-    'Unknown',
-    'Constraint',
-    'Data',
-    'TransactionInactive',
-    'ReadOnly',
-    'Version',
-    'NotFound',
-    'InvalidState',
-    'InvalidAccess',
-    'Abort',
-    'Timeout',
-    'QuotaExceeded',
-    'Syntax',
-    'DataClone'
-];
-
-var errorList = dexieErrorNames.concat(idbDomErrorNames);
-
-var defaultTexts = {
-    VersionChanged: "Database version changed by other database connection",
-    DatabaseClosed: "Database has been closed",
-    Abort: "Transaction aborted",
-    TransactionInactive: "Transaction has already completed or failed"
-};
-
-//
-// DexieError - base class of all out exceptions.
-//
-function DexieError (name, msg) {
-    // Reason we don't use ES6 classes is because:
-    // 1. It bloats transpiled code and increases size of minified code.
-    // 2. It doesn't give us much in this case.
-    // 3. It would require sub classes to call super(), which
-    //    is not needed when deriving from Error.
-    this._e = getErrorWithStack();
-    this.name = name;
-    this.message = msg;
-}
-
-derive(DexieError).from(Error).extend({
-    stack: {
-        get: function() {
-            return this._stack ||
-                (this._stack = this.name + ": " + this.message + prettyStack(this._e, 2));
-        }
-    },
-    toString: function(){ return this.name + ": " + this.message; }
-});
-
-function getMultiErrorMessage (msg, failures) {
-    return msg + ". Errors: " + failures
-        .map(f=>f.toString())
-        .filter((v,i,s)=>s.indexOf(v) === i) // Only unique error strings
-        .join('\n');
-}
-
-//
-// ModifyError - thrown in WriteableCollection.modify()
-// Specific constructor because it contains members failures and failedKeys.
-//
-function ModifyError (msg, failures, successCount, failedKeys) {
-    this._e = getErrorWithStack();
-    this.failures = failures;
-    this.failedKeys = failedKeys;
-    this.successCount = successCount;
-}
-derive(ModifyError).from(DexieError);
-
-function BulkError (msg, failures) {
-    this._e = getErrorWithStack();
-    this.name = "BulkError";
-    this.failures = failures;
-    this.message = getMultiErrorMessage(msg, failures);
-}
-derive(BulkError).from(DexieError);
-
-//
-//
-// Dynamically generate error names and exception classes based
-// on the names in errorList.
-//
-//
-
-// Map of {ErrorName -> ErrorName + "Error"}
-var errnames = errorList.reduce((obj,name)=>(obj[name]=name+"Error",obj),{});
-
-// Need an alias for DexieError because we're gonna create subclasses with the same name.
-const BaseException = DexieError;
-// Map of {ErrorName -> exception constructor}
-var exceptions = errorList.reduce((obj,name)=>{
-    // Let the name be "DexieError" because this name may
-    // be shown in call stack and when debugging. DexieError is
-    // the most true name because it derives from DexieError,
-    // and we cannot change Function.name programatically without
-    // dynamically create a Function object, which would be considered
-    // 'eval-evil'.
-    var fullName = name + "Error";
-    function DexieError (msgOrInner, inner){
-        this._e = getErrorWithStack();
-        this.name = fullName;
-        if (!msgOrInner) {
-            this.message = defaultTexts[name] || fullName;
-            this.inner = null;
-        } else if (typeof msgOrInner === 'string') {
-            this.message = msgOrInner;
-            this.inner = inner || null;
-        } else if (typeof msgOrInner === 'object') {
-            this.message = `${msgOrInner.name} ${msgOrInner.message}`;
-            this.inner = msgOrInner;
-        }
-    }
-    derive(DexieError).from(BaseException);
-    obj[name]=DexieError;
-    return obj;
-},{});
-
-// Use ECMASCRIPT standard exceptions where applicable:
-exceptions.Syntax = SyntaxError;
-exceptions.Type = TypeError;
-exceptions.Range = RangeError;
-
-var exceptionMap = idbDomErrorNames.reduce((obj, name)=>{
-    obj[name + "Error"] = exceptions[name];
-    return obj;
-}, {});
-
-function mapError (domError, message) {
-    if (!domError || domError instanceof DexieError || domError instanceof TypeError || domError instanceof SyntaxError || !domError.name || !exceptionMap[domError.name])
-        return domError;
-    var rv = new exceptionMap[domError.name](message || domError.message, domError);
-    if ("stack" in domError) {
-        // Derive stack from inner exception if it has a stack
-        setProp(rv, "stack", {get: function(){
-            return this.inner.stack;
-        }});
-    }
-    return rv;
-}
-
-var fullNameExceptions = errorList.reduce((obj, name)=>{
-    if (["Syntax","Type","Range"].indexOf(name) === -1)
-        obj[name + "Error"] = exceptions[name];
-    return obj;
-}, {});
-
-fullNameExceptions.ModifyError = ModifyError;
-fullNameExceptions.DexieError = DexieError;
-fullNameExceptions.BulkError = BulkError;
-
-function Events(ctx) {
-    var evs = {};
-    var rv = function (eventName, subscriber) {
-        if (subscriber) {
-            // Subscribe. If additional arguments than just the subscriber was provided, forward them as well.
-            var i = arguments.length, args = new Array(i - 1);
-            while (--i) args[i - 1] = arguments[i];
-            evs[eventName].subscribe.apply(null, args);
-            return ctx;
-        } else if (typeof (eventName) === 'string') {
-            // Return interface allowing to fire or unsubscribe from event
-            return evs[eventName];
-        }
-    };
-    rv.addEventType = add;
-    
-    for (var i = 1, l = arguments.length; i < l; ++i) {
-        add(arguments[i]);
-    }
-    
-    return rv;
-
-    function add(eventName, chainFunction, defaultFunction) {
-        if (typeof eventName === 'object') return addConfiguredEvents(eventName);
-        if (!chainFunction) chainFunction = reverseStoppableEventChain;
-        if (!defaultFunction) defaultFunction = nop;
-
-        var context = {
-            subscribers: [],
-            fire: defaultFunction,
-            subscribe: function (cb) {
-                if (context.subscribers.indexOf(cb) === -1) {
-                    context.subscribers.push(cb);
-                    context.fire = chainFunction(context.fire, cb);
-                }
-            },
-            unsubscribe: function (cb) {
-                context.subscribers = context.subscribers.filter(function (fn) { return fn !== cb; });
-                context.fire = context.subscribers.reduce(chainFunction, defaultFunction);
-            }
-        };
-        evs[eventName] = rv[eventName] = context;
-        return context;
-    }
-
-    function addConfiguredEvents(cfg) {
-        // events(this, {reading: [functionChain, nop]});
-        keys(cfg).forEach(function (eventName) {
-            var args = cfg[eventName];
-            if (isArray(args)) {
-                add(eventName, cfg[eventName][0], cfg[eventName][1]);
-            } else if (args === 'asap') {
-                // Rather than approaching event subscription using a functional approach, we here do it in a for-loop where subscriber is executed in its own stack
-                // enabling that any exception that occur wont disturb the initiator and also not nescessary be catched and forgotten.
-                var context = add(eventName, mirror, function fire() {
-                    // Optimazation-safe cloning of arguments into args.
-                    var i = arguments.length, args = new Array(i);
-                    while (i--) args[i] = arguments[i];
-                    // All each subscriber:
-                    context.subscribers.forEach(function (fn) {
-                        asap(function fireEvent() {
-                            fn.apply(null, args);
-                        });
-                    });
-                });
-            } else throw new exceptions.InvalidArgument("Invalid event config");
-        });
-    }
 }
 
 //
@@ -1364,6 +1198,174 @@ doFakeAutoComplete(() => {
         setTimeout(()=>{fn.apply(null, args);}, 0);
     };
 });
+
+var dexieErrorNames = [
+    'Modify',
+    'Bulk',
+    'OpenFailed',
+    'VersionChange',
+    'Schema',
+    'Upgrade',
+    'InvalidTable',
+    'MissingAPI',
+    'NoSuchDatabase',
+    'InvalidArgument',
+    'SubTransaction',
+    'Unsupported',
+    'Internal',
+    'DatabaseClosed',
+    'IncompatiblePromise'
+];
+
+var idbDomErrorNames = [
+    'Unknown',
+    'Constraint',
+    'Data',
+    'TransactionInactive',
+    'ReadOnly',
+    'Version',
+    'NotFound',
+    'InvalidState',
+    'InvalidAccess',
+    'Abort',
+    'Timeout',
+    'QuotaExceeded',
+    'Syntax',
+    'DataClone'
+];
+
+var errorList = dexieErrorNames.concat(idbDomErrorNames);
+
+var defaultTexts = {
+    VersionChanged: "Database version changed by other database connection",
+    DatabaseClosed: "Database has been closed",
+    Abort: "Transaction aborted",
+    TransactionInactive: "Transaction has already completed or failed"
+};
+
+//
+// DexieError - base class of all out exceptions.
+//
+function DexieError (name, msg) {
+    // Reason we don't use ES6 classes is because:
+    // 1. It bloats transpiled code and increases size of minified code.
+    // 2. It doesn't give us much in this case.
+    // 3. It would require sub classes to call super(), which
+    //    is not needed when deriving from Error.
+    this._e = getErrorWithStack();
+    this.name = name;
+    this.message = msg;
+}
+
+derive(DexieError).from(Error).extend({
+    stack: {
+        get: function() {
+            return this._stack ||
+                (this._stack = this.name + ": " + this.message + prettyStack(this._e, 2));
+        }
+    },
+    toString: function(){ return this.name + ": " + this.message; }
+});
+
+function getMultiErrorMessage (msg, failures) {
+    return msg + ". Errors: " + failures
+        .map(f=>f.toString())
+        .filter((v,i,s)=>s.indexOf(v) === i) // Only unique error strings
+        .join('\n');
+}
+
+//
+// ModifyError - thrown in WriteableCollection.modify()
+// Specific constructor because it contains members failures and failedKeys.
+//
+function ModifyError (msg, failures, successCount, failedKeys) {
+    this._e = getErrorWithStack();
+    this.failures = failures;
+    this.failedKeys = failedKeys;
+    this.successCount = successCount;
+}
+derive(ModifyError).from(DexieError);
+
+function BulkError (msg, failures) {
+    this._e = getErrorWithStack();
+    this.name = "BulkError";
+    this.failures = failures;
+    this.message = getMultiErrorMessage(msg, failures);
+}
+derive(BulkError).from(DexieError);
+
+//
+//
+// Dynamically generate error names and exception classes based
+// on the names in errorList.
+//
+//
+
+// Map of {ErrorName -> ErrorName + "Error"}
+var errnames = errorList.reduce((obj,name)=>(obj[name]=name+"Error",obj),{});
+
+// Need an alias for DexieError because we're gonna create subclasses with the same name.
+const BaseException = DexieError;
+// Map of {ErrorName -> exception constructor}
+var exceptions = errorList.reduce((obj,name)=>{
+    // Let the name be "DexieError" because this name may
+    // be shown in call stack and when debugging. DexieError is
+    // the most true name because it derives from DexieError,
+    // and we cannot change Function.name programatically without
+    // dynamically create a Function object, which would be considered
+    // 'eval-evil'.
+    var fullName = name + "Error";
+    function DexieError (msgOrInner, inner){
+        this._e = getErrorWithStack();
+        this.name = fullName;
+        if (!msgOrInner) {
+            this.message = defaultTexts[name] || fullName;
+            this.inner = null;
+        } else if (typeof msgOrInner === 'string') {
+            this.message = msgOrInner;
+            this.inner = inner || null;
+        } else if (typeof msgOrInner === 'object') {
+            this.message = `${msgOrInner.name} ${msgOrInner.message}`;
+            this.inner = msgOrInner;
+        }
+    }
+    derive(DexieError).from(BaseException);
+    obj[name]=DexieError;
+    return obj;
+},{});
+
+// Use ECMASCRIPT standard exceptions where applicable:
+exceptions.Syntax = SyntaxError;
+exceptions.Type = TypeError;
+exceptions.Range = RangeError;
+
+var exceptionMap = idbDomErrorNames.reduce((obj, name)=>{
+    obj[name + "Error"] = exceptions[name];
+    return obj;
+}, {});
+
+function mapError (domError, message) {
+    if (!domError || domError instanceof DexieError || domError instanceof TypeError || domError instanceof SyntaxError || !domError.name || !exceptionMap[domError.name])
+        return domError;
+    var rv = new exceptionMap[domError.name](message || domError.message, domError);
+    if ("stack" in domError) {
+        // Derive stack from inner exception if it has a stack
+        setProp(rv, "stack", {get: function(){
+            return this.inner.stack;
+        }});
+    }
+    return rv;
+}
+
+var fullNameExceptions = errorList.reduce((obj, name)=>{
+    if (["Syntax","Type","Range"].indexOf(name) === -1)
+        obj[name + "Error"] = exceptions[name];
+    return obj;
+}, {});
+
+fullNameExceptions.ModifyError = ModifyError;
+fullNameExceptions.DexieError = DexieError;
+fullNameExceptions.BulkError = BulkError;
 
 var DEXIE_VERSION = '1.4.3-rc';
 var maxString = String.fromCharCode(65535);
@@ -4196,7 +4198,7 @@ function TableSchema(name, primKey, indexes, instanceTemplate) {
 
 // Used in when defining dependencies later...
 // (If IndexedDBShim is loaded, prefer it before standard indexedDB)
-var idbshim = _global.shimIndexedDB ? _global.shimIndexedDB : {};
+//var idbshim = _global.shimIndexedDB ? _global.shimIndexedDB : {};
 
 function safariMultiStoreFix(storeNames) {
     return storeNames.length === 1 ? storeNames[0] : storeNames;
@@ -4402,8 +4404,8 @@ props(Dexie, {
     //
     dependencies: {
         // Required:
-        indexedDB: _global.shimIndexedDB || _global.indexedDB || _global.mozIndexedDB || _global.webkitIndexedDB || _global.msIndexedDB,
-        IDBKeyRange: idbshim.IDBKeyRange || _global.IDBKeyRange || _global.webkitIDBKeyRange
+        indexedDB: (bowser.ios && bowser.safari) ?_global.shimIndexedDB : (_global.indexedDB || _global.mozIndexedDB || _global.webkitIndexedDB || _global.msIndexedDB),
+        IDBKeyRange: _global.IDBKeyRange || _global.webkitIDBKeyRange
     },
     
     // API Version Number: Type Number, make sure to always set a version number that can be comparable correctly. Example: 0.9, 0.91, 0.92, 1.0, 1.01, 1.1, 1.2, 1.21, etc.

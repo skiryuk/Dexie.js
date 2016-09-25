@@ -53,6 +53,7 @@ import {
     promisableChain
 } from './chaining-functions';
 import * as Debug from './debug';
+import bowser from 'bowser';
 
 var DEXIE_VERSION = '{version}',
     maxString = String.fromCharCode(65535),
@@ -2888,7 +2889,7 @@ function TableSchema(name, primKey, indexes, instanceTemplate) {
 
 // Used in when defining dependencies later...
 // (If IndexedDBShim is loaded, prefer it before standard indexedDB)
-var idbshim = _global.shimIndexedDB ? _global.shimIndexedDB : {};
+//var idbshim = _global.shimIndexedDB ? _global.shimIndexedDB : {};
 
 function safariMultiStoreFix(storeNames) {
     return storeNames.length === 1 ? storeNames[0] : storeNames;
@@ -3094,8 +3095,8 @@ props(Dexie, {
     //
     dependencies: {
         // Required:
-        indexedDB: _global.shimIndexedDB || _global.indexedDB || _global.mozIndexedDB || _global.webkitIndexedDB || _global.msIndexedDB,
-        IDBKeyRange: idbshim.IDBKeyRange || _global.IDBKeyRange || _global.webkitIDBKeyRange
+        indexedDB: (bowser.ios && bowser.safari) ?_global.shimIndexedDB : (_global.indexedDB || _global.mozIndexedDB || _global.webkitIndexedDB || _global.msIndexedDB),
+        IDBKeyRange: _global.IDBKeyRange || _global.webkitIDBKeyRange
     },
     
     // API Version Number: Type Number, make sure to always set a version number that can be comparable correctly. Example: 0.9, 0.91, 0.92, 1.0, 1.01, 1.1, 1.2, 1.21, etc.
