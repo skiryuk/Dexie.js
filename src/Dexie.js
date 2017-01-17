@@ -2175,12 +2175,6 @@ export default function Dexie(dbName, options) {
                 return this;
             },
 
-            orderBy: function (indexName) {
-                var ctx = this._ctx;
-                if (indexName === ctx.index) return this;
-                return this.and(ctx.table.orderBy(indexName));
-            },
-
             until: function (filterFunction, bIncludeStopEntry) {
                 var ctx = this._ctx;
                 fake && filterFunction(getInstanceTemplate(ctx));
@@ -2214,25 +2208,13 @@ export default function Dexie(dbName, options) {
                 addMatchFilter(this._ctx, filterFunction); 
                 return this;
             },
-
-            and: function (param) {
-                if (typeof param === 'function') return this.filter(param);
-                if (typeof param === 'string') return this.where(param);
-                if (param instanceof Collection) {
-                    if (param._ctx.table !== this._ctx.table)
-                        throw new exceptions.InvalidTable("AND expressions must use same table");
-                    return this.clone({and: param});
-                }
-                return this.filter(param);
+            
+            and: function (filterFunction) {
+                return this.filter(filterFunction);
             },
 
-            or: function (indexNameOrCollection) {
-                if (indexNameOrCollection instanceof Collection) {
-                    if (indexNameOrCollection._ctx.table !== this._ctx.table)
-                        throw new exceptions.InvalidTable("OR expressions must use same table");
-                    return this.clone({or: indexNameOrCollection});
-                }
-                return new WhereClause(this._ctx.table, indexNameOrCollection, this);
+            or: function (indexName) {
+                return new WhereClause(this._ctx.table, indexName, this);
             },
 
             reverse: function () {
