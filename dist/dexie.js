@@ -2236,9 +2236,6 @@
            filter: function (filterFunction) {
                return this.toCollection().and(filterFunction);
            },
-           filterOrder: function (filterFunction, index) {
-               return this.toOrderCollection(index).and(filterFunction);
-           },
            each: function (fn) {
                return this.toCollection().each(fn);
            },
@@ -2251,10 +2248,6 @@
 
            toCollection: function () {
                return new this._collClass(new WhereClause(this));
-           },
-
-           toOrderCollection: function (index) {
-               return new this._collClass(new WhereClause(this, index));
            },
 
            mapToClass: function (constructor, structure) {
@@ -3565,6 +3558,12 @@
                        };
                    }, true);
                    return this;
+               },
+
+               orderBy: function (indexName) {
+                   var ctx = this._ctx;
+                   if (indexName === ctx.index) return this;
+                   return this.and(ctx.table.orderBy(indexName));
                },
 
                until: function (filterFunction, bIncludeStopEntry) {
